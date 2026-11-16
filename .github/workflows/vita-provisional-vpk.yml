@@ -1,0 +1,67 @@
+name: Build provisional Vita VPK
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-provisional:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Build provisional VPK
+        run: |
+          set -euo pipefail
+
+          mkdir -p "$GITHUB_WORKSPACE/build-provisional/package"
+
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/workspace" \
+            -w /workspace \
+            vitasdk/vitasdk:2026.08 \
+            bash -lc '
+              set -euo pipefail
+
+              PKG=/workspace/build-provisional/package
+              mkdir -p "$PKG/sce_sys"
+
+              cat > "$PKG/main.c" <<EOF
+              #include <psp2/kernel/processmgr.h>
+
+              int main(void) {
+                  sceKernelExitProcess(0);
+                  return 0;
+              }
+              EOF
+
+              arm-vita-eabi-gcc -Wl,-q \
+                "$PKG/main.c" -o "$PKG/eboot.elf"
+
+              vita-elf-create \
+                "$PKG/eboot.elf" "$PKG/eboot.velf"
+
+              vita-make-fself -c \
+                "$PKG/eboot.velf" "$PKG/eboot.bin"
+
+              vita-mksfoex \
+                -s TITLE_ID=PPSSV0001 \
+                "PPSSPP Vita Provisional" \
+                "$PKG/sce_sys/param.sfo"
+
+              vita-pack-vpk \
+                -s "$PKG/sce_sys/param.sfo" \
+                -b "$PKG/eboot.bin" \
+                "$PKG/PPSSPP-Vita-Provisional.vpk"
+
+              test -s "$PKG/PPSSPP-Vita-Provisional.vpk"
+              ls -lh "$PKG/PPSSPP-Vita-Provisional.vpk"
+            '
+
+      - name: Upload provisional VPK
+        uses: actions/upload-artifact@v4
+        with:
+          name: PPSSPP-Vita-Provisional
+          path: build-provisional/package/PPSSPP-Vita-Provisional.vpk
+          if-no-files-found: error
+          retention-days: 14
