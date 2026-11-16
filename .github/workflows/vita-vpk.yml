@@ -68,6 +68,28 @@ jobs:
               header = header.replace(marker, marker + "\n#ifndef SOMAXCONN\n#define SOMAXCONN 128\n#endif", 1)
               enet_path.write_text(header)
 
+          client_path = Path("upstream/ppsspp/ext/aemu_postoffice/client/enet.c")
+          client_lines = client_path.read_text().splitlines()
+          patched = 0
+
+          for i, line in enumerate(client_lines):
+              if line.strip() != "#ifdef __PSP__":
+                  continue
+
+              following = i + 1
+              while following < len(client_lines) and not client_lines[following].strip():
+                  following += 1
+
+              if following < len(client_lines) and client_lines[following].strip() in ("// just v4", "// no v6 support"):
+                  indent = line[:len(line) - len(line.lstrip())]
+                  client_lines[i] = indent + "#if defined(__PSP__) || defined(ENET_IPV4_ONLY)"
+                  patched += 1
+
+          if patched != 2:
+              raise SystemExit(f"Se esperaban 2 condiciones PSP; se corrigieron {patched}")
+
+          client_path.write_text("\n".join(client_lines) + "\n")
+          print("ENet client: selección IPv4 corregida para Vita.")
           import re
 
           cmake_path = Path(sys.argv[2])
