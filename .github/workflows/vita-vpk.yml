@@ -1,0 +1,113 @@
+name: Build PPSSPP Vita VPK
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  build-vita:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Verify Vita port sources
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ ! -f vita/platform/vita_main.cpp ]; then
+            echo "::error::Falta vita/platform/vita_main.cpp en el repositorio publicado."
+            exit 1
+          fi
+
+          if ! grep -q 'option(VITA ' upstream/ppsspp/CMakeLists.txt; then
+            echo "::error::El submodulo PPSSPP no contiene las modificaciones CMake para Vita."
+            exit 1
+          fi
+
+      - name: Build and package with VitaSDK
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/workspace" \
+            -w /workspace \
+            vitasdk/vitasdk:2026.08 \
+            bash -lc '
+              set -euo pipefail
+
+              vdpm install vitaGL
+
+              cmake -S upstream/ppsspp -B build-vita \
+                -DCMAKE_TOOLCHAIN_FILE="$VITASDK/share/vita.toolchain.cmake" \
+                -DCMAKE_BUILD_TYPE=Release \
+                -DVITA=ON \
+                -DUSING_GLES2=ON \
+                -DUSE_FFMPEG=OFF \
+                -DUSE_DISCORD=OFF \
+                -DUSE_MINIUPNPC=OFF \
+                -DUSE_SYSTEM_LIBPNG=OFF \
+                -DUSE_SYSTEM_LIBZIP=OFF \
+                -DUSE_SYSTEM_ZSTD=OFF \
+                -DUSE_SYSTEM_LIBCHDR=OFF \
+                -DUSE_SYSTEM_FREETYPE=OFF \
+                -DUNITTEST=OFF \
+                -DATLAS_TOOL=OFF \
+                -DLIBRETRO=OFF \
+                -DHEADLESS_CROSS=OFF
+
+              cmake --build build-vita --parallel 2
+
+              ELF="$(find build-vita -type f \
+                \( -name PPSSPPVita.elf -o -name PPSSPPVita \) \
+                -print -quit)"
+
+              if [ -z "$ELF" ]; then
+                echo "No se encontro el ejecutable PPSSPPVita."
+                find build-vita -type f -executable
+                exit 1
+              fi
+
+              test -d build-vita/assets
+              test -f upstream/ppsspp/icons/icon-114.png
+
+              PKG="$PWD/build-vita/package"
+              mkdir -p "$PKG/sce_sys"
+
+              vita-elf-create "$ELF" "$PKG/PPSSPPVita.velf"
+              vita-make-fself -c "$PKG/PPSSPPVita.velf" "$PKG/eboot.bin"
+
+              vita-mksfoex \
+                -s TITLE_ID=PPSSV0001 \
+                "PPSSPP Vita" \
+                "$PKG/param.sfo"
+
+              vita-pack-vpk \
+                -s "$PKG/param.sfo" \
+                -b "$PKG/eboot.bin" \
+                -a "$PWD/build-vita/assets=assets" \
+                -a "$PWD/upstream/ppsspp/icons/icon-114.png=sce_sys/icon0.png" \
+                "$PKG/PPSSPP-Vita.vpk"
+
+              test -s "$PKG/PPSSPP-Vita.vpk"
+              ls -lh "$PKG/PPSSPP-Vita.vpk"
+            '
+
+      - name: Upload VPK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PPSSPP-Vita-VPK
+          path: build-vita/package/PPSSPP-Vita.vpk
+          if-no-files-found: error
+          retention-days: 14
