@@ -35,6 +35,25 @@ jobs:
             exit 1
           fi
 
+      - name: Fix ENet POSIX header for Vita
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ENET="upstream/ppsspp/ext/aemu_postoffice/ext/enet/enet.h"
+          test -f "$ENET"
+
+          # sys/ioctl.h no existe en el SDK de Vita y esta cabecera
+          # solo lo necesita para la implementación específica de Windows.
+          sed -i '/^[[:space:]]*#include <sys\/ioctl\.h>[[:space:]]*$/d' "$ENET"
+
+          if grep -n 'sys/ioctl.h' "$ENET"; then
+            echo "::error::No se pudo retirar la inclusión incompatible de ENet."
+            exit 1
+          fi
+
+          echo "ENet corregido para la compilación Vita."
+
       - name: Build and package with VitaSDK
         shell: bash
         run: |
