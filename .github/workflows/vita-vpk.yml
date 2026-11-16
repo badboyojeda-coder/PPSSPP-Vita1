@@ -54,6 +54,41 @@ jobs:
 
           echo "ENet corregido para la compilación Vita."
 
+          # Configurar ENet para las limitaciones de Vita.
+          python3 - "$ENET" "upstream/ppsspp/ext/CMakeLists.txt" <<'PYTHON'
+          import sys
+          from pathlib import Path
+
+          enet_path = Path(sys.argv[1])
+          header = enet_path.read_text()
+          if "#ifndef SOMAXCONN" not in header:
+              marker = "#include <netinet/tcp.h>"
+              if marker not in header:
+                  raise SystemExit("No se encontró el include POSIX de ENet")
+              header = header.replace(marker, marker + "\n#ifndef SOMAXCONN\n#define SOMAXCONN 128\n#endif", 1)
+              enet_path.write_text(header)
+
+          import re
+
+          cmake_path = Path(sys.argv[2])
+          cmake = cmake_path.read_text()
+
+          for target in ("aemu_postoffice_client", "aemu_postoffice_server"):
+              definition = f"target_compile_definitions({target} PRIVATE ENET_IPV4_ONLY)"
+              if definition in cmake:
+                  continue
+
+              pattern = rf"add_library\({target}\s+STATIC\s+.*?\)"
+              match = re.search(pattern, cmake, re.DOTALL)
+              if not match:
+                  raise SystemExit(f"No se encontró el objetivo {target}")
+
+              cmake = cmake[:match.end()] + "\n" + definition + cmake[match.end():]
+
+          cmake_path.write_text(cmake)
+          print("ENet: IPv4 exclusivo y SOMAXCONN configurados para Vita.")
+          PYTHON
+
       - name: Build and package with VitaSDK
         shell: bash
         run: |
