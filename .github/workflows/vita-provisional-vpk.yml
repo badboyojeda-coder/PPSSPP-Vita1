@@ -11,9 +11,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Build provisional VPK
+        shell: bash
         run: |
           set -euo pipefail
-
           mkdir -p "$GITHUB_WORKSPACE/build-provisional/package"
 
           docker run --rm \
@@ -26,17 +26,17 @@ jobs:
               PKG=/workspace/build-provisional/package
               mkdir -p "$PKG/sce_sys"
 
-              cat > "$PKG/main.c" <<EOF
-              #include <psp2/kernel/processmgr.h>
-
-              int main(void) {
-                  sceKernelExitProcess(0);
-                  return 0;
-              }
-              EOF
+              printf "%s\n" \
+                "#include <psp2/kernel/processmgr.h>" \
+                "int main(void) {" \
+                "    sceKernelExitProcess(0);" \
+                "    return 0;" \
+                "}" > "$PKG/main.c"
 
               arm-vita-eabi-gcc -Wl,-q \
-                "$PKG/main.c" -o "$PKG/eboot.elf"
+                "$PKG/main.c" \
+                -o "$PKG/eboot.elf" \
+                -lSceLibKernel_stub
 
               vita-elf-create \
                 "$PKG/eboot.elf" "$PKG/eboot.velf"
