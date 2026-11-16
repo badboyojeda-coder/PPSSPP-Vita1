@@ -111,6 +111,39 @@ jobs:
           print("ENet: IPv4 exclusivo y SOMAXCONN configurados para Vita.")
           PYTHON
 
+      - name: Configure armips POSIX filesystem for Vita
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python3 - <<'PYTHON'
+          from pathlib import Path
+
+          path = Path("upstream/ppsspp/ext/armips/CMakeLists.txt")
+          source = path.read_text()
+
+          marker = "add_library(armips STATIC)"
+          definition = "target_compile_definitions(armips PRIVATE GHC_OS_BSD GHC_OS_DETECTED)"
+
+          if definition in source:
+              print("armips ya tiene GHC_OS_BSD.")
+          else:
+              if source.count(marker) != 1:
+                  raise SystemExit("No se encontró una única declaración de armips.")
+
+              source = source.replace(
+                  marker,
+                  marker + "\n" + definition,
+                  1
+              )
+              path.write_text(source)
+              print("armips configurado con GHC_OS_BSD para Vita.")
+
+          PYTHON
+
+          grep -n -A2 'add_library(armips STATIC)' upstream/ppsspp/ext/armips/CMakeLists.txt
+          grep -q 'target_compile_definitions(armips PRIVATE GHC_OS_BSD GHC_OS_DETECTED)' upstream/ppsspp/ext/armips/CMakeLists.txt
+
       - name: Build and package with VitaSDK
         shell: bash
         run: |
